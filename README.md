@@ -1,81 +1,177 @@
 # 🏙️ Bangkok Urban Governance Data Pipeline
 
+> An end-to-end Data Engineering project that ingests, transforms, and visualizes citizen complaint data across Bangkok — from raw streaming events to a live, interactive dashboard deployed on Google Cloud.
+
+---
+
 ## 📖 Introduction
-Welcome to the **Bangkok Urban Governance Data Pipeline**! This project is a modern, end-to-end Data Engineering portfolio piece. It simulates a smart-city infrastructure designed to ingest, process, and analyze citizen complaints across Bangkok (similar to platforms like Traffy Fondue).
 
-By combining real-time streaming, cloud data warehousing, complex data transformations, and an interactive front-end dashboard, this project demonstrates how data engineering can directly drive civic improvements.
+Every day, Bangkok residents submit thousands of complaints — flooded streets, broken streetlights, potholes, illegal dumping. But raw complaint data sitting in a database helps no one.
 
----
-
-## 🎯 Purpose
-City governments receive thousands of complaints daily—ranging from flooded streets to broken streetlights. The purpose of this project is to:
-1. **Centralize Data:** Create a single source of truth for all urban issues.
-2. **Protect Citizen Privacy:** Mask Personally Identifiable Information (PII) before it reaches analysts.
-3. **Discover Causality:** Go beyond basic counting by joining complaint data with external factors like Weather APIs and Holiday calendars to predict *why* problems happen.
-4. **Enable Real-Time Action:** Stream new complaints directly to a dashboard so field workers can respond instantly.
+This project builds a **complete data pipeline** that turns messy, real-time complaint streams into actionable intelligence: clean data, privacy-safe views, weather-correlated analytics, and a live dashboard that city officials can use to allocate resources and respond faster.
 
 ---
 
-## 🏗️ Architecture & Concepts (Step-by-Step)
+## 🎯 What This Project Does
 
-This project follows a modern **Medallion Architecture** (Bronze ➔ Silver ➔ Gold), executing the following steps:
+| Goal | How |
+|------|-----|
+| **Centralize** all urban complaints | Ingest via Google Pub/Sub → store in BigQuery |
+| **Protect citizen privacy** | Mask addresses & round GPS coordinates before analyst access |
+| **Discover causality** | Join complaints with Weather API + Thai Holiday calendar |
+| **Enable real-time response** | Stream live alerts directly to the dashboard |
+| **Automate everything** | CI/CD pipeline: `git push` → auto-deploy to Cloud Run |
 
-### Step 1: Real-Time Ingestion (Google Pub/Sub)
-Citizen complaints are generated and published into a message queue (Google Pub/Sub / Kafka). This allows the system to handle massive spikes in traffic (e.g., during a severe rainstorm) without dropping any tickets.
+---
 
-### Step 2: Cloud Storage (Google BigQuery)
-Raw data lands in Google BigQuery, our highly scalable, serverless Data Warehouse.
+## 🏗️ Architecture
 
-### Step 3: Data Transformation & Enrichment (dbt)
-We use **dbt (Data Build Tool)** to write modular SQL transformations:
-* **Staging (Silver):** Raw JSON/Parquet files are cast into proper types, nulls are handled, and boolean NLP flags (e.g., `has_flooding_issue`) are extracted.
-* **Privacy Masking:** A secure view is created (`mask_fact_complaints.sql`) that truncates specific street addresses and rounds GPS coordinates to 3 decimal places. This ensures analysts can see neighborhood clusters without identifying individual citizens' homes.
-* **Enrichment (Gold):** We use `UNPIVOT` logic (`CROSS JOIN UNNEST`) to properly categorize tickets that contain multiple issues. Then, we join the complaints with the **Open-Meteo Weather API** and a **Thai Holiday Calendar** to create a rich, multidimensional dataset (`fact_complaints_enriched`).
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────────┐
+│  Pub/Sub     │────▶│  BigQuery     │────▶│  dbt         │────▶│  Streamlit   │
+│  (Streaming) │     │  (Warehouse)  │     │  (Transform) │     │  (Dashboard) │
+└─────────────┘     └──────────────┘     └─────────────┘     └──────────────┘
+       │                    │                    │                    │
+   Kafka-style         Raw Bronze           Silver → Gold        Cloud Run
+   message queue       landing zone         Medallion Arch.      auto-deploy
+```
 
-### Step 4: Interactive Dashboard (Streamlit & Plotly)
-The final Gold data is served to a **Streamlit** web application featuring:
-* **Geographical Mapping:** 
-  * A District-level Choropleth map for high-level management overview.
-  * An interactive, zoomable Scatter Map plotting individual masked tickets for field workers.
-* **Predictive Causality Analytics:** Beautiful area charts, density heatmaps, and donut charts proving how heavy rainfall and weekends impact specific types of complaints.
-* **Live Event Feed:** A direct connection to the Pub/Sub stream, popping up real-time alerts as citizens submit new tickets.
+This project follows a **Medallion Architecture** (Bronze → Silver → Gold):
+
+### 🥉 Bronze — Raw Ingestion
+- **`src/stream_producer.py`**: Simulates citizen complaints and publishes them to **Google Pub/Sub**
+- **`src/stream_consumer.py`**: Subscribes to the Pub/Sub topic and writes raw data into **Google Cloud Storage** as Parquet files
+- **`terraform/`**: All GCP infrastructure (BigQuery datasets, Pub/Sub topics, GCS buckets, Service Accounts) is provisioned via **Terraform** as Infrastructure-as-Code
+
+### 🥈 Silver — Cleaning & Processing
+- **`spark/apps/process_data.py`**: Apache Spark job that reads raw Parquet files, performs **NLP text classification** (using PyThaiNLP) to flag issues like flooding/potholes/garbage, and executes a **Spatial Join** against Bangkok district GeoJSON polygons to map each ticket to its district
+- **`bangkok_urban_dbt/models/staging/`**: dbt models that cast raw types, handle nulls, and standardize column names
+
+### 🥇 Gold — Enrichment & Privacy
+- **`bangkok_urban_dbt/models/marts/core/`**: Core fact tables with clean, typed data
+- **`bangkok_urban_dbt/models/marts/secure/mask_fact_complaints.sql`**: A privacy-safe view that truncates street addresses and rounds GPS to 3 decimal places (~100m precision)
+- **`bangkok_urban_dbt/models/marts/fact_complaints_enriched.sql`**: Enriched dataset joining complaints with **Open-Meteo Weather API** data and **Thai Holiday Calendar** to enable causal analysis
+- **`src/fetch_enrichment_data.py`**: Script that pulls weather data and holiday schedules from external APIs
+
+### 📊 Dashboard — Visualization & Deployment
+- **`streamlit/app.py`**: Interactive Streamlit dashboard with:
+  - 🗺️ **District Choropleth Map** — "Which district has the most problems?"
+  - 📍 **Ticket-Level Scatter Map** — Zoom to street level, filter by category
+  - 📈 **Predictive Analytics** — Weather × complaints correlation, weekday vs weekend patterns
+  - 🔴 **Live Pub/Sub Feed** — Real-time alerts as new tickets arrive
+- **`Dockerfile`**: Containerized with the `uv` package manager for lightning-fast builds
+- **`.github/workflows/deploy.yml`**: CI/CD pipeline — every `git push` auto-deploys to Cloud Run
 
 ---
 
 ## 🛠️ Tech Stack
-* **Language:** Python, SQL
-* **Data Warehouse:** Google BigQuery
-* **Streaming:** Google Pub/Sub (Kafka)
-* **Transformation:** dbt (Data Build Tool)
-* **Frontend UI:** Streamlit, Plotly, PyDeck
-* **Deployment:** Google Cloud Run / Docker
+
+| Layer | Technology |
+|-------|-----------|
+| **Infrastructure** | Terraform, Google Cloud Platform |
+| **Ingestion** | Google Pub/Sub |
+| **Storage** | Google BigQuery, Google Cloud Storage |
+| **Processing** | Apache Spark, PyThaiNLP |
+| **Transformation** | dbt (Data Build Tool) |
+| **Enrichment** | Open-Meteo Weather API, Thai Holiday Calendar |
+| **Dashboard** | Streamlit, Plotly, Mapbox |
+| **Containerization** | Docker, uv |
+| **CI/CD** | GitHub Actions → Google Cloud Run |
+| **Language** | Python, SQL, HCL |
 
 ---
 
-## 🚀 How to Run Locally
+## 📁 Project Structure
 
-This project uses [uv](https://docs.astral.sh/uv/) for lightning-fast Python dependency management.
+```
+thailand_governance_pipeline/
+│
+├── .github/workflows/
+│   └── deploy.yml              # CI/CD: auto-deploy on git push
+│
+├── src/
+│   ├── stream_producer.py      # Pub/Sub message publisher
+│   ├── stream_consumer.py      # Pub/Sub subscriber → GCS writer
+│   └── fetch_enrichment_data.py # Weather API & Holiday data fetcher
+│
+├── spark/apps/
+│   └── process_data.py         # Spark NLP + Spatial Join pipeline
+│
+├── bangkok_urban_dbt/
+│   └── models/
+│       ├── staging/            # Silver: type casting, cleaning
+│       └── marts/
+│           ├── core/           # Gold: core fact tables
+│           ├── secure/         # Gold: PII-masked views
+│           └── fact_complaints_enriched.sql  # Weather + Holiday joins
+│
+├── streamlit/
+│   └── app.py                  # Interactive dashboard
+│
+├── terraform/
+│   ├── main.tf                 # GCP resource definitions
+│   ├── variables.tf            # Configurable parameters
+│   └── providers.tf            # GCP provider config
+│
+├── Dockerfile                  # uv-based container for Cloud Run
+├── pyproject.toml              # Python dependencies (managed by uv)
+├── docker-compose.yml          # Local Spark cluster setup
+└── README.md
+```
 
-1. **Install Dependencies:**
-   ```bash
-   uv sync
-   ```
-2. **Authenticate with Google Cloud:**
-   ```bash
-   gcloud auth application-default login
-   ```
-3. **Run the Dashboard:**
-   ```bash
-   uv run streamlit run streamlit/app.py
-   ```
+---
 
-## ☁️ How to Deploy (Cloud Run)
-This app is completely Dockerized and ready for keyless, secure deployment on GCP:
+## 🚀 Getting Started
+
+### Prerequisites
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud` CLI)
+- A GCP project with BigQuery, Pub/Sub, and Cloud Storage enabled
+
+### Run Locally
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/bombaepabo/traffy_pipeline.git
+cd traffy_pipeline
+
+# 2. Install all dependencies
+uv sync
+
+# 3. Authenticate with Google Cloud
+gcloud auth application-default login
+
+# 4. Launch the dashboard
+uv run streamlit run streamlit/app.py
+```
+
+---
+
+## ☁️ Deployment
+
+### CI/CD (Automatic)
+This project uses **GitHub Actions** for continuous deployment. Every push to the `master` branch automatically:
+1. Builds the Docker container using `uv`
+2. Pushes it to Google Artifact Registry
+3. Deploys it to **Cloud Run** in `asia-southeast1` (Singapore)
+
+No manual deployment commands needed — just `git push`!
+
+### Manual Deploy
 ```bash
 gcloud run deploy bangkok-dashboard \
   --source . \
   --region asia-southeast1 \
   --allow-unauthenticated \
-  --service-account="your-service-account-email@your-project.iam.gserviceaccount.com" \
   --memory 1024Mi
 ```
+
+---
+
+## 🔒 Security & Privacy
+
+- **PII Masking**: Street addresses are truncated, GPS coordinates are rounded to 3 decimal places (~100m precision)
+- **Keyless Authentication**: Cloud Run uses IAM Service Accounts — no credential files in containers
+- **Secrets Management**: GCP Service Account keys are stored in GitHub Secrets, never committed to the repository
+- **`.gitignore`**: All `.json` key files, `.env` files, and Terraform state files are excluded from version control

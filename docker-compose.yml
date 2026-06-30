@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # =======================================================
+  # 1. Apache Airflow (Batch Orchestrator)
+  # =======================================================
+  airflow:
+    image: apache/airflow:2.7.1-python3.11
+    command: standalone
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./credentials.json:/opt/airflow/credentials.json
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/credentials.json
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_REGION=${GCP_REGION}
+      - RAW_BUCKET_NAME=${RAW_BUCKET_NAME}
+      - SILVER_BUCKET_NAME=${SILVER_BUCKET_NAME}
+
+  # =======================================================
+  # 2. Apache Spark Master (Batch Processing Engine)
+  # =======================================================
+  spark:
+    image: bitnamilegacy/spark:3.4.1
+    environment:
+      - SPARK_MODE=master
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/bitnami/spark/credentials.json
+    volumes:
+      - ./spark/apps:/opt/bitnami/spark/apps
+      - ./credentials.json:/opt/bitnami/spark/credentials.json:ro
+    ports:
+      - "8090:8080"
+      - "7077:7077"
+  # =======================================================
+  # 3. Streamlit (Serving Layer Web Portal)
+  # =======================================================
+  streamlit:
+    image: python:3.11-slim
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./streamlit:/app
+      - ./credentials.json:/app/credentials.json:ro
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_REGION=${GCP_REGION}
+      - RAW_BUCKET_NAME=${RAW_BUCKET_NAME}
+      - SILVER_BUCKET_NAME=${SILVER_BUCKET_NAME}
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir pandas streamlit folium streamlit-folium google-cloud-storage google-cloud-pubsub plotly &&
+             streamlit run app.py --server.port=8501 --server.address=0.0.0.0"

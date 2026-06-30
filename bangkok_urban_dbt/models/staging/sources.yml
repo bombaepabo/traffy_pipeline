@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: bangkok_raw
+    database: scrimterz-bangkok-urban
+    schema: raw_staging
+    description: "External tables pointing to Parquet files in the Silver GCS bucket"
+    tables:
+      - name: ext_complaints
+        description: "Raw complaints data processed by Spark"
+      - name: ext_weather
+        description: "Raw daily weather data processed by Spark"

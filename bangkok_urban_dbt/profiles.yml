@@ -1,0 +1,13 @@
+bangkok_urban_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: scrimterz-bangkok-urban
+      dataset: warehouse_gold
+      threads: 4
+      keyfile: ../credentials.json
+      location: asia-southeast1
+      priority: interactive
+      retries: 1

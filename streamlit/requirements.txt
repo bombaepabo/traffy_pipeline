@@ -1,6 +1,0 @@
-streamlit
-pandas
-plotly
-google-cloud-bigquery
-google-cloud-pubsub
-db-dtypes

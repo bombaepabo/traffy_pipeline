@@ -54,10 +54,11 @@ The final Gold data is served to a **Streamlit** web application featuring:
 
 ## 🚀 How to Run Locally
 
+This project uses [uv](https://docs.astral.sh/uv/) for lightning-fast Python dependency management.
+
 1. **Install Dependencies:**
    ```bash
-   cd streamlit
-   pip install -r requirements.txt
+   uv sync
    ```
 2. **Authenticate with Google Cloud:**
    ```bash
@@ -65,7 +66,7 @@ The final Gold data is served to a **Streamlit** web application featuring:
    ```
 3. **Run the Dashboard:**
    ```bash
-   streamlit run app.py
+   uv run streamlit run streamlit/app.py
    ```
 
 ## ☁️ How to Deploy (Cloud Run)

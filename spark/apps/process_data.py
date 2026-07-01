@@ -21,7 +21,7 @@ for path in user_site_paths:
 # NOW import the installed libraries
 import json
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, udf, explode, lit
+from pyspark.sql.functions import col, udf, explode, posexplode, lit
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, BooleanType, IntegerType, ArrayType, TimestampType
 from shapely.geometry import shape, Point
 from pythainlp.tokenize import word_tokenize
@@ -37,6 +37,9 @@ def build_spark_session():
     # Notice we removed the `.config("spark.jars.packages", ...)` here because we are using the Uber-JAR!
     return SparkSession.builder \
         .appName("BangkokUrbanDataProcessing") \
+        .config("spark.jars", "/opt/bitnami/spark/apps/gcs-connector.jar") \
+        .config("spark.driver.extraClassPath", "/opt/bitnami/spark/apps/gcs-connector.jar") \
+        .config("spark.executor.extraClassPath", "/opt/bitnami/spark/apps/gcs-connector.jar") \
         .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem") \
         .config("spark.hadoop.fs.gs.auth.service.account.enable", "true") \
         .config("spark.hadoop.fs.gs.auth.service.account.json.keyfile", "/opt/bitnami/spark/credentials.json") \
@@ -121,9 +124,30 @@ def main():
     # 3. Process Complaints Batch Data
     # =======================================================
     print("Reading raw complaints from GCS...")
-    raw_complaints_path = f"gs://{RAW_BUCKET}/batch/*/*/*/*.json"
+    # Read from both batch (historical) and stream (live) folders
+    # Some paths may not exist yet, so we try each one individually
+    possible_paths = [
+        f"gs://{RAW_BUCKET}/batch/*/*/*/*.json",
+        f"gs://{RAW_BUCKET}/stream/*/*/*/*/*/*.json"
+    ]
     
-    df_complaints = spark.read.json(raw_complaints_path, multiLine=True)
+    dfs = []
+    for path in possible_paths:
+        try:
+            df = spark.read.json(path, multiLine=True)
+            dfs.append(df)
+            print(f"  ✅ Found data at: {path}")
+        except Exception:
+            print(f"  ⚠️ No data at: {path} (skipping)")
+    
+    if not dfs:
+        print("❌ No complaint data found in any path. Exiting.")
+        spark.stop()
+        return
+    
+    # Union all DataFrames together
+    from functools import reduce
+    df_complaints = reduce(lambda a, b: a.unionByName(b, allowMissingColumns=True), dfs)
     
     # Clean coordinate arrays, convert timestamps, and extract columns
     df_clean_complaints = df_complaints \
@@ -167,19 +191,29 @@ def main():
     # =======================================================
     # 4. Process Weather Data
     # =======================================================
+    # Note: This weather data is processed and written to the Silver bucket 
+    # to demonstrate Spark capabilities in the portfolio. In the final dbt models,
+    # weather data is sourced from dim_date_enriched.csv instead.
     print("Reading raw weather from GCS...")
     raw_weather_path = f"gs://{RAW_BUCKET}/weather/*/*/*/*.json"
     
     df_weather = spark.read.json(raw_weather_path, multiLine=True)
     
-    # Open-Meteo returns nested daily arrays, we unpack (explode) them
+    # Open-Meteo returns parallel arrays. Use posexplode to extract values by index.
     df_flat_weather = df_weather \
         .select(
-            explode(col("daily.time")).alias("date"),
-            col("daily.rain_sum").getItem(0).cast(DoubleType()).alias("rainfall_mm"),
-            col("daily.temperature_2m_max").getItem(0).cast(DoubleType()).alias("temp_max_c"),
-            col("daily.temperature_2m_min").getItem(0).cast(DoubleType()).alias("temp_min_c"),
-            col("daily.relative_humidity_2m_max").getItem(0).cast(DoubleType()).alias("humidity_max")
+            posexplode(col("daily.time")).alias("pos", "date"),
+            col("daily.rain_sum"),
+            col("daily.temperature_2m_max"),
+            col("daily.temperature_2m_min"),
+            col("daily.relative_humidity_2m_max")
+        ) \
+        .select(
+            col("date"),
+            col("rain_sum").getItem(col("pos")).cast(DoubleType()).alias("rainfall_mm"),
+            col("temperature_2m_max").getItem(col("pos")).cast(DoubleType()).alias("temp_max_c"),
+            col("temperature_2m_min").getItem(col("pos")).cast(DoubleType()).alias("temp_min_c"),
+            col("relative_humidity_2m_max").getItem(col("pos")).cast(DoubleType()).alias("humidity_max")
         )
         
     silver_weather_path = f"gs://{SILVER_BUCKET}/weather"

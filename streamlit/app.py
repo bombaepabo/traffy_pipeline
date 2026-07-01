@@ -34,6 +34,17 @@ def load_historical_data():
     """
     return client.query(query).to_dataframe()
 
+@st.cache_data(ttl=600)
+def load_date_range():
+    client = bigquery.Client()
+    query = """
+        SELECT 
+            MIN(created_date) as oldest,
+            MAX(created_date) as newest
+        FROM `scrimterz-bangkok-urban.warehouse_gold.mask_fact_complaints`
+    """
+    return client.query(query).to_dataframe().iloc[0]
+
 @st.cache_data(ttl=3600)
 def load_geojson():
     """Cache the GeoJSON so we don't re-download from GitHub on every rerun."""
@@ -42,6 +53,7 @@ def load_geojson():
 
 with st.spinner("กำลังดึงข้อมูลจากคลังข้อมูล..."):
     df = load_historical_data()
+    date_range = load_date_range()
 
 # Calculate some quick stats for the KPIs
 total_tickets = df['total_complaints'].sum()
@@ -49,10 +61,15 @@ top_district = df.sort_values(by='total_complaints', ascending=False).iloc[0]
 
 # --- 3. UI LAYOUT: KPIs ---
 st.markdown("---")
-m1, m2, m3 = st.columns(3)
+m1, m2, m3, m4 = st.columns(4)
 m1.metric("จำนวนเรื่องร้องเรียนทั้งหมด", f"{total_tickets:,}")
 m2.metric("เขตที่มีเรื่องร้องเรียนสูงสุด", top_district['district_th'])
-m3.metric("สถานะระบบ", "🟢 กำลังสตรีมแบบเรียลไทม์")
+
+oldest_str = date_range['oldest'].strftime('%d %b %Y') if pd.notnull(date_range['oldest']) else 'N/A'
+newest_str = date_range['newest'].strftime('%d %b %Y') if pd.notnull(date_range['newest']) else 'N/A'
+m3.metric("ช่วงเวลาข้อมูล", f"{oldest_str} ถึง {newest_str}")
+
+m4.metric("สถานะระบบ", "🟢 กำลังสตรีมแบบเรียลไทม์")
 st.markdown("---")
 
 

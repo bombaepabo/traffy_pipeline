@@ -128,7 +128,7 @@ def main():
     # Some paths may not exist yet, so we try each one individually
     possible_paths = [
         f"gs://{RAW_BUCKET}/batch/*/*/*/*.json",
-        f"gs://{RAW_BUCKET}/stream/*/*/*/*/*/*.json"
+        f"gs://{RAW_BUCKET}/stream/*/*/*/*/*.json"
     ]
     
     dfs = []

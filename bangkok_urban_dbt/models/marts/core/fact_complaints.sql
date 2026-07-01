@@ -1,5 +1,5 @@
 {{ config(
-    materialized='incremental',
+    materialized='table',
     unique_key='ticket_id'
 ) }}
 
@@ -28,9 +28,3 @@ select
     rating_star,
     reopen_count
 from complaints
-
--- This block only runs on subsequent days, NOT on the first run!
-{% if is_incremental() %}
-  -- Only process new rows that are newer than what we already have stored in this table
-  where created_at > (select max(created_at) from {{ this }})
-{% endif %}
